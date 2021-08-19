@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:sdp_transform/sdp_transform.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'mqtt_server.dart' if (dart.library.html) 'mqtt_browser.dart'
@@ -140,6 +141,38 @@ class _MyHomePageState extends State<MyHomePage> {
     return stream;
   }
 
+  void _createOffer() async {
+    RTCSessionDescription description =
+        await _peerConnection!.createOffer({'offerToReceiveVideo': 1});
+    var session = parse(description.sdp.toString());
+    String offerSdp = json.encode(session);
+    _offer = true;
+
+    _peerConnection!.setLocalDescription(description);
+    _publishMessage(anotherMobile, WebRTC_Method.OFFER.index, offerSdp);
+  }
+
+  void _createAnswer() async {
+    RTCSessionDescription description =
+        await _peerConnection!.createAnswer({'offerToReceiveVideo': 1});
+
+    var session = parse(description.sdp.toString());
+    String answerSdp = json.encode(session);
+
+    _peerConnection!.setLocalDescription(description);
+    _publishMessage(anotherMobile, WebRTC_Method.ANSWER.index, answerSdp);
+  }
+
+  void _setRemoteDescription(String sdpString) async {
+    dynamic session = await jsonDecode('$sdpString');
+    String sdp = write(session, null);
+
+    RTCSessionDescription description =
+        RTCSessionDescription(sdp, _offer ? 'answer' : 'offer');
+
+    await _peerConnection!.setRemoteDescription(description);
+  }
+
   void prepareMqttClient() async {
     _setupMqttClient();
     await _connectClient();
@@ -200,6 +233,15 @@ class _MyHomePageState extends State<MyHomePage> {
           MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
       print(
           'New Message Arrived:: topic is <${c[0].topic}>, payload is <-- $pt -->');
+      var receivedMessage = json.decode(pt);
+      if (receivedMessage['Type'] == WebRTC_Method.OFFER.index) {
+        _setRemoteDescription(receivedMessage['Body']);
+        _createAnswer();
+      }
+      if (receivedMessage['Type'] == WebRTC_Method.ANSWER.index) {
+        _setRemoteDescription(receivedMessage['Body']);
+      }
+      if (receivedMessage['Type'] == WebRTC_Method.ICE_CANDIDATE.index) {}
     });
   }
 
@@ -224,13 +266,12 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   /// Published new location to mqtt
-  void _publishMessage() {
+  void _publishMessage(String topic, int WebRTCMethod, String sdp) {
     final MqttClientPayloadBuilder builder = MqttClientPayloadBuilder();
-    String message = 'Message From Flutter';
+    String message = '{Type:$WebRTCMethod, Body:$sdp}';
     builder.addString(message);
 
-    _client.publishMessage(
-        anotherMobile, MqttQos.exactlyOnce, builder.payload!);
+    _client.publishMessage(topic, MqttQos.exactlyOnce, builder.payload!);
   }
 
   SizedBox videoRenderers() => SizedBox(
@@ -254,22 +295,12 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Row offerAndAnswerButtons() =>
       Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: <Widget>[
-        const ElevatedButton(
-          // onPressed: () {
-          //   return showDialog(
-          //       context: context,
-          //       builder: (context) {
-          //         return AlertDialog(
-          //           content: Text(sdpController.text),
-          //         );
-          //       });
-          // },
-          onPressed: null, //_createOffer,
-          child: Text('Make Call'),
-          //color: Colors.amber,
+        ElevatedButton(
+          onPressed: _createOffer,
+          child: const Text('Make Call'),
         ),
         ElevatedButton(
-          onPressed: null, //_createAnswer,
+          onPressed: _createAnswer,
           child: const Text('Answer'),
           style: ElevatedButton.styleFrom(primary: Colors.amber),
         ),
@@ -290,11 +321,6 @@ class _MyHomePageState extends State<MyHomePage> {
           //sdpCandidateButtons(),
         ],
       )),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _publishMessage,
-        tooltip: 'Publish Message',
-        child: const Icon(Icons.add),
-      ),
     );
   }
 }
