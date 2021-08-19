@@ -103,7 +103,7 @@ class _MyHomePageState extends State<MyHomePage> {
           'sdpMid': e.sdpMid.toString(),
           'sdpMlineIndex': e.sdpMlineIndex,
         });
-        print(candidates);
+        //print(candidates);
         _publishMessage(
             anotherMobile, WebRTC_Method.ICE_CANDIDATE.index, candidates);
       }
@@ -177,7 +177,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _addCandidate(String candidates) async {
     dynamic session = await jsonDecode(candidates);
-    print('Received Candidate: ' + session['candidate']);
+    //print('Received Candidate: ' + session['candidate']);
     dynamic candidate = RTCIceCandidate(
         session['candidate'], session['sdpMid'], session['sdpMlineIndex']);
     await _peerConnection!.addCandidate(candidate);
@@ -244,7 +244,7 @@ class _MyHomePageState extends State<MyHomePage> {
       // print(
       //     'New Message Arrived:: topic is <${c[0].topic}>, payload is <-- $pt -->');
       var receivedMessage = json.decode(pt);
-      print(receivedMessage['Body']);
+      //print(receivedMessage['Body']);
       if (receivedMessage['Type'] == WebRTC_Method.OFFER.index) {
         _setRemoteDescription(receivedMessage['Body']);
         _createAnswer();
@@ -279,9 +279,9 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   /// Published new location to mqtt
-  void _publishMessage(String topic, int WebRTCMethod, String sdp) {
+  void _publishMessage(String topic, int webRTCMethod, String sdp) {
     final MqttClientPayloadBuilder builder = MqttClientPayloadBuilder();
-    String message = '{Type:$WebRTCMethod, Body:$sdp}';
+    String message = '{"Type":$webRTCMethod, "Body":$sdp}';
     builder.addString(message);
 
     _client.publishMessage(topic, MqttQos.exactlyOnce, builder.payload!);
