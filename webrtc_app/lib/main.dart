@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:mqtt_client/mqtt_client.dart';
@@ -35,6 +36,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  bool _offer = false;
   final String myMobile = "01713032885";
   final String anotherMobile = "09638582706";
   // set default sub and conn states
@@ -45,7 +47,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
+  RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
+
   @override
   dispose() {
     _localStream?.dispose();
@@ -58,13 +62,60 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     prepareMqttClient();
     initRenderers();
-    _getUserMedia();
+    _createPeerConnecion().then((pc) {
+      _peerConnection = pc;
+    });
     super.initState();
   }
 
   initRenderers() async {
     await _localRenderer.initialize();
-     await _remoteRenderer.initialize();
+    await _remoteRenderer.initialize();
+  }
+
+  _createPeerConnecion() async {
+    Map<String, dynamic> configuration = {
+      "iceServers": [
+        {"url": "stun:stun.l.google.com:19302"},
+      ]
+    };
+
+    final Map<String, dynamic> offerSdpConstraints = {
+      "mandatory": {
+        "OfferToReceiveAudio": true,
+        "OfferToReceiveVideo": true,
+      },
+      "optional": [],
+    };
+
+    _localStream = await _getUserMedia();
+
+    RTCPeerConnection pc =
+        await createPeerConnection(configuration, offerSdpConstraints);
+
+    pc.addStream(_localStream!);
+
+    pc.onIceCandidate = (e) {
+      if (e.candidate != null) {
+        String candidates = json.encode({
+          'candidate': e.candidate.toString(),
+          'sdpMid': e.sdpMid.toString(),
+          'sdpMlineIndex': e.sdpMlineIndex,
+        });
+        print(candidates);
+      }
+    };
+
+    pc.onIceConnectionState = (e) {
+      //print(e);
+    };
+
+    pc.onAddStream = (stream) {
+      //print('addStream: ' + stream.id);
+      _remoteRenderer.srcObject = stream;
+    };
+
+    return pc;
   }
 
   _getUserMedia() async {
@@ -82,9 +133,11 @@ class _MyHomePageState extends State<MyHomePage> {
       },
     };
 
-    _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+    MediaStream stream =
+        await navigator.mediaDevices.getUserMedia(mediaConstraints);
 
-    _localRenderer.srcObject = _localStream;
+    _localRenderer.srcObject = stream;
+    return stream;
   }
 
   void prepareMqttClient() async {
@@ -229,15 +282,14 @@ class _MyHomePageState extends State<MyHomePage> {
         title: Text(widget.title),
       ),
       body: Container(
-         child: Column(
-           children: [
-            videoRenderers(),
-            offerAndAnswerButtons(),
-            //sdpCandidatesTF(),
-            //sdpCandidateButtons(),
-          ],
-         )
-      ),
+          child: Column(
+        children: [
+          videoRenderers(),
+          offerAndAnswerButtons(),
+          //sdpCandidatesTF(),
+          //sdpCandidateButtons(),
+        ],
+      )),
       floatingActionButton: FloatingActionButton(
         onPressed: _publishMessage,
         tooltip: 'Publish Message',
