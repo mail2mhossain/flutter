@@ -38,13 +38,14 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   bool _offer = false;
-  final String myMobile = "09638582706"; //"01713032885";
-  final String anotherMobile = "01713032885"; //"09638582706";
+  List<String> ICE_candidates = [];
+  final String myMobile = "01713032885"; //"01713032885";
+  final String anotherMobile = "09638582706"; //"09638582706";
   // set default sub and conn states
   MqttCurrentConnectionState connectionState = MqttCurrentConnectionState.IDLE;
   MqttSubscriptionState subscriptionState = MqttSubscriptionState.IDLE;
 
-  final _client = mqttsetup.setup("09638582706");
+  final _client = mqttsetup.setup("01713032885");
 
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
@@ -98,14 +99,13 @@ class _MyHomePageState extends State<MyHomePage> {
 
     pc.onIceCandidate = (e) {
       if (e.candidate != null) {
-        String candidates = json.encode({
+        String candidate = json.encode({
           'candidate': e.candidate.toString(),
           'sdpMid': e.sdpMid.toString(),
           'sdpMlineIndex': e.sdpMlineIndex,
         });
-        //print(candidates);
-        _publishMessage(
-            anotherMobile, WebRTC_Method.ICE_CANDIDATE.index, candidates);
+        ICE_candidates.add(candidate);
+        print("ICE Candidate has been generated");
       }
     };
 
@@ -123,7 +123,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   _getUserMedia() async {
     final Map<String, dynamic> mediaConstraints = {
-      'audio': false,
+      'audio': true,
       'video': {
         'mandatory': {
           'minWidth':
@@ -149,19 +149,31 @@ class _MyHomePageState extends State<MyHomePage> {
     var session = parse(description.sdp.toString());
     String offerSdp = json.encode(session);
     _offer = true;
-
     _peerConnection!.setLocalDescription(description);
     _publishMessage(anotherMobile, WebRTC_Method.OFFER.index, offerSdp);
+    print("OFFER messsage has been sent to: $anotherMobile");
   }
 
   void _setRemoteDescription(String sdpString) async {
-    dynamic session = await jsonDecode(sdpString);
-    String sdp = write(session, null);
-
     RTCSessionDescription description =
-        RTCSessionDescription(sdp, _offer ? 'answer' : 'offer');
+        RTCSessionDescription(sdpString, _offer ? 'answer' : 'offer');
 
     await _peerConnection!.setRemoteDescription(description);
+
+    if (_offer) {
+      print("Remote Description has been set as ANSWER");
+      int totalICECandidates = ICE_candidates.length;
+      print("Total ICE Candidates: $totalICECandidates");
+      for (var candidate in ICE_candidates) {
+        _publishMessage(
+            anotherMobile, WebRTC_Method.ICE_CANDIDATE.index, candidate);
+      }
+
+      print("Candidate message has been published to: $anotherMobile");
+      _offer = false;
+    } else {
+      print("Remote Description has been set as OFFER");
+    }
   }
 
   void _createAnswer() async {
@@ -173,14 +185,15 @@ class _MyHomePageState extends State<MyHomePage> {
 
     _peerConnection!.setLocalDescription(description);
     _publishMessage(anotherMobile, WebRTC_Method.ANSWER.index, answerSdp);
+    print("ANSWER message has been sent to: $anotherMobile");
   }
 
-  void _addCandidate(String candidates) async {
-    dynamic session = await jsonDecode(candidates);
-    //print('Received Candidate: ' + session['candidate']);
-    dynamic candidate = RTCIceCandidate(
-        session['candidate'], session['sdpMid'], session['sdpMlineIndex']);
+  void _addCandidate(Map<String, dynamic> candidates) async {
+    //print('Received Candidate: $candidates');
+    dynamic candidate = RTCIceCandidate(candidates['candidate'],
+        candidates['sdpMid'], candidates['sdpMlineIndex']);
     await _peerConnection!.addCandidate(candidate);
+    print("CANDIDATE has been added.");
   }
 
   void prepareMqttClient() async {
@@ -241,18 +254,24 @@ class _MyHomePageState extends State<MyHomePage> {
       final recMess = c[0].payload as MqttPublishMessage;
       final pt =
           MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
-      // print(
-      //     'New Message Arrived:: topic is <${c[0].topic}>, payload is <-- $pt -->');
+
       var receivedMessage = json.decode(pt);
-      //print(receivedMessage['Body']);
+      String sdp = "";
+
       if (receivedMessage['Type'] == WebRTC_Method.OFFER.index) {
-        _setRemoteDescription(receivedMessage['Body']);
+        print("OFFER Message has been Received");
+        _offer = false;
+        sdp = write(receivedMessage['Body'], null);
+        _setRemoteDescription(sdp);
         _createAnswer();
       }
       if (receivedMessage['Type'] == WebRTC_Method.ANSWER.index) {
-        _setRemoteDescription(receivedMessage['Body']);
+        print("ANSWER Message has been Received");
+        sdp = write(receivedMessage['Body'], null);
+        _setRemoteDescription(sdp);
       }
       if (receivedMessage['Type'] == WebRTC_Method.ICE_CANDIDATE.index) {
+        print("CANDIDATE Message has been Received");
         _addCandidate(receivedMessage['Body']);
       }
     });
