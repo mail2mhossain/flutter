@@ -104,6 +104,8 @@ class _MyHomePageState extends State<MyHomePage> {
           'sdpMlineIndex': e.sdpMlineIndex,
         });
         print(candidates);
+        _publishMessage(
+            anotherMobile, WebRTC_Method.ICE_CANDIDATE.index, candidates);
       }
     };
 
@@ -152,6 +154,16 @@ class _MyHomePageState extends State<MyHomePage> {
     _publishMessage(anotherMobile, WebRTC_Method.OFFER.index, offerSdp);
   }
 
+  void _setRemoteDescription(String sdpString) async {
+    dynamic session = await jsonDecode('$sdpString');
+    String sdp = write(session, null);
+
+    RTCSessionDescription description =
+        RTCSessionDescription(sdp, _offer ? 'answer' : 'offer');
+
+    await _peerConnection!.setRemoteDescription(description);
+  }
+
   void _createAnswer() async {
     RTCSessionDescription description =
         await _peerConnection!.createAnswer({'offerToReceiveVideo': 1});
@@ -163,14 +175,12 @@ class _MyHomePageState extends State<MyHomePage> {
     _publishMessage(anotherMobile, WebRTC_Method.ANSWER.index, answerSdp);
   }
 
-  void _setRemoteDescription(String sdpString) async {
-    dynamic session = await jsonDecode('$sdpString');
-    String sdp = write(session, null);
-
-    RTCSessionDescription description =
-        RTCSessionDescription(sdp, _offer ? 'answer' : 'offer');
-
-    await _peerConnection!.setRemoteDescription(description);
+  void _addCandidate(String candidates) async {
+    dynamic session = await jsonDecode(candidates);
+    print('Received Candidate: ' + session['candidate']);
+    dynamic candidate = RTCIceCandidate(
+        session['candidate'], session['sdpMid'], session['sdpMlineIndex']);
+    await _peerConnection!.addCandidate(candidate);
   }
 
   void prepareMqttClient() async {
@@ -231,9 +241,10 @@ class _MyHomePageState extends State<MyHomePage> {
       final recMess = c[0].payload as MqttPublishMessage;
       final pt =
           MqttPublishPayload.bytesToStringAsString(recMess.payload.message);
-      print(
-          'New Message Arrived:: topic is <${c[0].topic}>, payload is <-- $pt -->');
+      // print(
+      //     'New Message Arrived:: topic is <${c[0].topic}>, payload is <-- $pt -->');
       var receivedMessage = json.decode(pt);
+      print(receivedMessage['Body']);
       if (receivedMessage['Type'] == WebRTC_Method.OFFER.index) {
         _setRemoteDescription(receivedMessage['Body']);
         _createAnswer();
@@ -241,7 +252,9 @@ class _MyHomePageState extends State<MyHomePage> {
       if (receivedMessage['Type'] == WebRTC_Method.ANSWER.index) {
         _setRemoteDescription(receivedMessage['Body']);
       }
-      if (receivedMessage['Type'] == WebRTC_Method.ICE_CANDIDATE.index) {}
+      if (receivedMessage['Type'] == WebRTC_Method.ICE_CANDIDATE.index) {
+        _addCandidate(receivedMessage['Body']);
+      }
     });
   }
 
@@ -302,7 +315,7 @@ class _MyHomePageState extends State<MyHomePage> {
         ElevatedButton(
           onPressed: _createAnswer,
           child: const Text('Answer'),
-          style: ElevatedButton.styleFrom(primary: Colors.amber),
+          //style: ElevatedButton.styleFrom(primary: Colors.amber),
         ),
       ]);
 
