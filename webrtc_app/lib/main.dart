@@ -44,17 +44,18 @@ class _MyHomePageState extends State<MyHomePage> {
   final _client = mqttsetup.setup("01713032885");
 
   final _localRenderer = RTCVideoRenderer();
+  final _remoteRenderer = RTCVideoRenderer();
   MediaStream? _localStream;
   @override
   dispose() {
     _localStream?.dispose();
     _localRenderer.dispose();
+    _remoteRenderer.dispose();
     super.dispose();
   }
 
   @override
   void initState() {
-    
     prepareMqttClient();
     initRenderers();
     _getUserMedia();
@@ -63,6 +64,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   initRenderers() async {
     await _localRenderer.initialize();
+     await _remoteRenderer.initialize();
   }
 
   _getUserMedia() async {
@@ -174,8 +176,51 @@ class _MyHomePageState extends State<MyHomePage> {
     String message = 'Message From Flutter';
     builder.addString(message);
 
-    _client.publishMessage(anotherMobile, MqttQos.exactlyOnce, builder.payload!);
+    _client.publishMessage(
+        anotherMobile, MqttQos.exactlyOnce, builder.payload!);
   }
+
+  SizedBox videoRenderers() => SizedBox(
+      height: 210,
+      child: Row(children: [
+        Flexible(
+          child: Container(
+              key: const Key("local"),
+              margin: const EdgeInsets.fromLTRB(5.0, 5.0, 5.0, 5.0),
+              decoration: const BoxDecoration(color: Colors.black),
+              child: RTCVideoView(_localRenderer)),
+        ),
+        Flexible(
+          child: Container(
+              key: const Key("remote"),
+              margin: const EdgeInsets.fromLTRB(5.0, 5.0, 5.0, 5.0),
+              decoration: const BoxDecoration(color: Colors.black),
+              child: RTCVideoView(_remoteRenderer)),
+        )
+      ]));
+
+  Row offerAndAnswerButtons() =>
+      Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: <Widget>[
+        const ElevatedButton(
+          // onPressed: () {
+          //   return showDialog(
+          //       context: context,
+          //       builder: (context) {
+          //         return AlertDialog(
+          //           content: Text(sdpController.text),
+          //         );
+          //       });
+          // },
+          onPressed: null, //_createOffer,
+          child: Text('Make Call'),
+          //color: Colors.amber,
+        ),
+        ElevatedButton(
+          onPressed: null, //_createAnswer,
+          child: const Text('Answer'),
+          style: ElevatedButton.styleFrom(primary: Colors.amber),
+        ),
+      ]);
 
   @override
   Widget build(BuildContext context) {
@@ -183,18 +228,15 @@ class _MyHomePageState extends State<MyHomePage> {
       appBar: AppBar(
         title: Text(widget.title),
       ),
-      body: OrientationBuilder(
-        builder: (context, orientation) {
-          return Center(
-            child: Container(
-              margin: EdgeInsets.fromLTRB(0.0, 0.0, 0.0, 0.0),
-              width: MediaQuery.of(context).size.width,
-              height: MediaQuery.of(context).size.height,
-              child: RTCVideoView(_localRenderer, mirror: true),
-              decoration: BoxDecoration(color: Colors.black54),
-            ),
-          );
-        },
+      body: Container(
+         child: Column(
+           children: [
+            videoRenderers(),
+            offerAndAnswerButtons(),
+            //sdpCandidatesTF(),
+            //sdpCandidateButtons(),
+          ],
+         )
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _publishMessage,
