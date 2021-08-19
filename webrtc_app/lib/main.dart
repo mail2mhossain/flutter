@@ -38,13 +38,13 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   bool _offer = false;
-  final String myMobile = "01713032885";
-  final String anotherMobile = "09638582706";
+  final String myMobile = "09638582706"; //"01713032885";
+  final String anotherMobile = "01713032885"; //"09638582706";
   // set default sub and conn states
   MqttCurrentConnectionState connectionState = MqttCurrentConnectionState.IDLE;
   MqttSubscriptionState subscriptionState = MqttSubscriptionState.IDLE;
 
-  final _client = mqttsetup.setup("01713032885");
+  final _client = mqttsetup.setup("09638582706");
 
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
@@ -155,7 +155,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _setRemoteDescription(String sdpString) async {
-    dynamic session = await jsonDecode('$sdpString');
+    dynamic session = await jsonDecode(sdpString);
     String sdp = write(session, null);
 
     RTCSessionDescription description =
