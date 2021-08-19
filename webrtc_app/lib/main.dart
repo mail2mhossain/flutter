@@ -35,11 +35,13 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  final String myMobile = "01713032885";
+  final String anotherMobile = "09638582706";
   // set default sub and conn states
   MqttCurrentConnectionState connectionState = MqttCurrentConnectionState.IDLE;
   MqttSubscriptionState subscriptionState = MqttSubscriptionState.IDLE;
 
-  final _client = mqttsetup.setup('broker.emqx.io');
+  final _client = mqttsetup.setup("01713032885");
 
   final _localRenderer = RTCVideoRenderer();
   MediaStream? _localStream;
@@ -52,10 +54,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void initState() {
-    super.initState();
+    
+    prepareMqttClient();
     initRenderers();
     _getUserMedia();
-    prepareMqttClient();
+    super.initState();
   }
 
   initRenderers() async {
@@ -85,7 +88,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void prepareMqttClient() async {
     _setupMqttClient();
     await _connectClient();
-    _subscribeToTopic('new_registration');
+    _subscribeToTopic(myMobile);
   }
 
   /// sets up mqtt client and connection params
@@ -171,8 +174,7 @@ class _MyHomePageState extends State<MyHomePage> {
     String message = 'Message From Flutter';
     builder.addString(message);
 
-    _client.publishMessage(
-        'new_registration', MqttQos.exactlyOnce, builder.payload!);
+    _client.publishMessage(anotherMobile, MqttQos.exactlyOnce, builder.payload!);
   }
 
   @override
