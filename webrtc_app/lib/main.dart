@@ -38,14 +38,14 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   bool _offer = false;
-  List<String> ICE_candidates = [];
-  final String myMobile = "01713032885"; //"01713032885";
-  final String anotherMobile = "09638582706"; //"09638582706";
+  bool isIceCandidateSent = true;
+  final String myMobile = "09638582706"; //"01713032885";
+  final String anotherMobile = "01713032885"; //"09638582706";
   // set default sub and conn states
   MqttCurrentConnectionState connectionState = MqttCurrentConnectionState.IDLE;
   MqttSubscriptionState subscriptionState = MqttSubscriptionState.IDLE;
 
-  final _client = mqttsetup.setup("01713032885");
+  final _client = mqttsetup.setup("09638582706");
 
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
@@ -104,8 +104,14 @@ class _MyHomePageState extends State<MyHomePage> {
           'sdpMid': e.sdpMid.toString(),
           'sdpMlineIndex': e.sdpMlineIndex,
         });
-        ICE_candidates.add(candidate);
+        //ICE_candidates.add(candidate);
         print("ICE Candidate has been generated");
+        if (isIceCandidateSent) {
+          _publishMessage(
+              anotherMobile, WebRTC_Method.ICE_CANDIDATE.index, candidate);
+          print("Candidate message has been published to: $anotherMobile");
+          isIceCandidateSent = false;
+        }
       }
     };
 
@@ -144,13 +150,15 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _createOffer() async {
+    isIceCandidateSent = true;
     RTCSessionDescription description =
         await _peerConnection!.createOffer({'offerToReceiveVideo': 1});
     var session = parse(description.sdp.toString());
     String offerSdp = json.encode(session);
-    _offer = true;
-    _peerConnection!.setLocalDescription(description);
+
     _publishMessage(anotherMobile, WebRTC_Method.OFFER.index, offerSdp);
+    _peerConnection!.setLocalDescription(description);
+    _offer = true;
     print("OFFER messsage has been sent to: $anotherMobile");
   }
 
@@ -162,14 +170,6 @@ class _MyHomePageState extends State<MyHomePage> {
 
     if (_offer) {
       print("Remote Description has been set as ANSWER");
-      int totalICECandidates = ICE_candidates.length;
-      print("Total ICE Candidates: $totalICECandidates");
-      for (var candidate in ICE_candidates) {
-        _publishMessage(
-            anotherMobile, WebRTC_Method.ICE_CANDIDATE.index, candidate);
-      }
-
-      print("Candidate message has been published to: $anotherMobile");
       _offer = false;
     } else {
       print("Remote Description has been set as OFFER");
@@ -183,8 +183,9 @@ class _MyHomePageState extends State<MyHomePage> {
     var session = parse(description.sdp.toString());
     String answerSdp = json.encode(session);
 
-    _peerConnection!.setLocalDescription(description);
     _publishMessage(anotherMobile, WebRTC_Method.ANSWER.index, answerSdp);
+    _peerConnection!.setLocalDescription(description);
+
     print("ANSWER message has been sent to: $anotherMobile");
   }
 
@@ -263,6 +264,7 @@ class _MyHomePageState extends State<MyHomePage> {
         _offer = false;
         sdp = write(receivedMessage['Body'], null);
         _setRemoteDescription(sdp);
+        //Create Anwser should be called after setting remote description
         _createAnswer();
       }
       if (receivedMessage['Type'] == WebRTC_Method.ANSWER.index) {
@@ -288,6 +290,7 @@ class _MyHomePageState extends State<MyHomePage> {
     print('OnDisconnected client callback - Client disconnection');
 
     connectionState = MqttCurrentConnectionState.DISCONNECTED;
+    _connectClient();
   }
 
   /// called when mqtt server is connected
