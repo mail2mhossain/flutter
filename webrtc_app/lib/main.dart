@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:async';
+import 'dart:core';
+import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:sdp_transform/sdp_transform.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -6,6 +9,7 @@ import 'package:mqtt_client/mqtt_client.dart';
 import 'mqtt_server.dart' if (dart.library.html) 'mqtt_browser.dart'
     as mqttsetup;
 import 'models.dart';
+import 'constants.dart';
 
 void main() {
   runApp(const MyApp());
@@ -38,6 +42,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   bool _offer = false;
+  bool _inCalling = false;
   bool isIceCandidateSent = true;
   final String myMobile = "09638582706"; //"01713032885";
   final String anotherMobile = "01713032885"; //"09638582706";
@@ -46,11 +51,15 @@ class _MyHomePageState extends State<MyHomePage> {
   MqttSubscriptionState subscriptionState = MqttSubscriptionState.IDLE;
 
   final _client = mqttsetup.setup("09638582706");
-
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
+  List<String> _iceCandidates = [];
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
+  Timer? _timer;
+
+  String get sdpSemantics =>
+      WebRTC.platformIsWindows ? 'plan-b' : 'unified-plan';
 
   @override
   dispose() {
@@ -64,15 +73,197 @@ class _MyHomePageState extends State<MyHomePage> {
   void initState() {
     prepareMqttClient();
     initRenderers();
-    _createPeerConnecion().then((pc) {
-      _peerConnection = pc;
-    });
     super.initState();
+  }
+
+  @override
+  void deactivate() {
+    super.deactivate();
+    if (_inCalling) {
+      _hangUp();
+    }
+    _localRenderer.dispose();
+    _remoteRenderer.dispose();
   }
 
   initRenderers() async {
     await _localRenderer.initialize();
     await _remoteRenderer.initialize();
+  }
+
+  void handleStatsReport(Timer timer) async {}
+
+  void _onSignalingState(RTCSignalingState state) {
+    //print(state);
+  }
+
+  void _onIceGatheringState(RTCIceGatheringState state) {
+    //print(state);
+  }
+
+  void _onIceConnectionState(RTCIceConnectionState state) {
+    //print(state);
+  }
+
+  void _onPeerConnectionState(RTCPeerConnectionState state) {
+    //print(state);
+  }
+
+  void _onAddStream(MediaStream stream) {
+    //print('New stream: ' + stream.id);
+    _remoteRenderer.srcObject = stream;
+  }
+
+  void _onRemoveStream(MediaStream stream) {
+    _remoteRenderer.srcObject = null;
+  }
+
+  //void _onIceCandidate(RTCIceCandidate candidate) {
+  void _onIceCandidate(RTCIceCandidate e) {
+    //print('onCandidate: ${candidate.candidate}');
+    if (e.candidate != null) {
+      print("ICE Candidate has been generated");
+      String candidate = json.encode({
+        'candidate': e.candidate.toString(),
+        'sdpMid': e.sdpMid.toString(),
+        'sdpMlineIndex': e.sdpMlineIndex,
+      });
+      _iceCandidates.add(candidate);
+    }
+  }
+
+  void _onTrack(RTCTrackEvent event) {
+    //print('onTrack');
+    if (event.track.kind == 'video') {
+      _remoteRenderer.srcObject = event.streams[0];
+    }
+  }
+
+  void _onAddTrack(MediaStream stream, MediaStreamTrack track) {
+    if (track.kind == 'video') {
+      _remoteRenderer.srcObject = stream;
+    }
+  }
+
+  void _onRemoveTrack(MediaStream stream, MediaStreamTrack track) {
+    if (track.kind == 'video') {
+      _remoteRenderer.srcObject = null;
+    }
+  }
+
+  void _onRenegotiationNeeded() {
+    //print('RenegotiationNeeded');
+  }
+
+  // Platform messages are asynchronous, so we initialize in an async method.
+  void _makeCall() async {
+    if (_peerConnection != null) return;
+
+    try {
+      _peerConnection =
+          await createPeerConnection(configuration, offerSdpConstraints);
+
+      _peerConnection!.onSignalingState = _onSignalingState;
+      _peerConnection!.onIceGatheringState = _onIceGatheringState;
+      _peerConnection!.onIceConnectionState = _onIceConnectionState;
+      _peerConnection!.onConnectionState = _onPeerConnectionState;
+      _peerConnection!.onIceCandidate = _onIceCandidate;
+      _peerConnection!.onRenegotiationNeeded = _onRenegotiationNeeded;
+
+      _localStream =
+          await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      _localRenderer.srcObject = _localStream;
+
+      switch (sdpSemantics) {
+        case 'plan-b':
+          _peerConnection!.onAddStream = _onAddStream;
+          _peerConnection!.onRemoveStream = _onRemoveStream;
+          await _peerConnection!.addStream(_localStream!);
+          break;
+        case 'unified-plan':
+          _peerConnection!.onTrack = _onTrack;
+          _peerConnection!.onAddTrack = _onAddTrack;
+          _peerConnection!.onRemoveTrack = _onRemoveTrack;
+          _localStream!.getTracks().forEach((track) {
+            _peerConnection!.addTrack(track, _localStream!);
+          });
+          break;
+      }
+      print("Peer Connection has been created.");
+      var description = await _peerConnection!.createOffer(offerSdpConstraints);
+      print("OFFER has been created.");
+      await _peerConnection!.setLocalDescription(description);
+      print("Local Description has been set.");
+      sendOffer(description.sdp.toString());
+    } catch (e) {
+      print(e.toString());
+    }
+
+    setState(() {
+      _inCalling = true;
+    });
+  }
+
+  void _receiveCall(String sdpString) async {
+    if (_peerConnection != null) {
+      _hangUp();
+    }
+
+    try {
+      _peerConnection =
+          await createPeerConnection(configuration, offerSdpConstraints);
+
+      _peerConnection!.onSignalingState = _onSignalingState;
+      _peerConnection!.onIceGatheringState = _onIceGatheringState;
+      _peerConnection!.onIceConnectionState = _onIceConnectionState;
+      _peerConnection!.onConnectionState = _onPeerConnectionState;
+      _peerConnection!.onIceCandidate = _onIceCandidate;
+      _peerConnection!.onRenegotiationNeeded = _onRenegotiationNeeded;
+
+      _localStream =
+          await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      _localRenderer.srcObject = _localStream;
+
+      switch (sdpSemantics) {
+        case 'plan-b':
+          _peerConnection!.onAddStream = _onAddStream;
+          _peerConnection!.onRemoveStream = _onRemoveStream;
+          await _peerConnection!.addStream(_localStream!);
+          break;
+        case 'unified-plan':
+          _peerConnection!.onTrack = _onTrack;
+          _peerConnection!.onAddTrack = _onAddTrack;
+          _peerConnection!.onRemoveTrack = _onRemoveTrack;
+          _localStream!.getTracks().forEach((track) {
+            _peerConnection!.addTrack(track, _localStream!);
+          });
+          break;
+      }
+      print("Peer Connection has been created for ANWSER.");
+      _setRemoteDescription(sdpString);
+      _createAnswer();
+      //_requestIceCandidates();
+    } catch (e) {
+      print("Failed to create Peer Connection for ANWSER. ERROR:");
+      print(e.toString());
+    }
+  }
+
+  void _hangUp() async {
+    try {
+      await _localStream?.dispose();
+      await _peerConnection?.close();
+      _peerConnection = null;
+      _localRenderer.srcObject = null;
+      _remoteRenderer.srcObject = null;
+    } catch (e) {
+      print("Hang Up Error. ERROR:");
+      print(e.toString());
+    }
+    setState(() {
+      _inCalling = false;
+    });
+    _timer?.cancel();
   }
 
   _createPeerConnecion() async {
@@ -108,7 +299,7 @@ class _MyHomePageState extends State<MyHomePage> {
         print("ICE Candidate has been generated");
         if (isIceCandidateSent) {
           _publishMessage(
-              anotherMobile, WebRTC_Method.ICE_CANDIDATE.index, candidate);
+              anotherMobile, WebRTC_Method.ICE_CANDIDATES.index, candidate);
           print("Candidate message has been published to: $anotherMobile");
           isIceCandidateSent = false;
         }
@@ -149,6 +340,14 @@ class _MyHomePageState extends State<MyHomePage> {
     return stream;
   }
 
+  void sendOffer(String sdp) async {
+    var session = parse(sdp);
+    String offerSdp = json.encode(session);
+
+    _publishMessage(anotherMobile, WebRTC_Method.OFFER.index, offerSdp);
+    print("OFFER has been sent to: $anotherMobile");
+  }
+
   void _createOffer() async {
     isIceCandidateSent = true;
     RTCSessionDescription description =
@@ -164,16 +363,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
   void _setRemoteDescription(String sdpString) async {
     RTCSessionDescription description =
-        RTCSessionDescription(sdpString, _offer ? 'answer' : 'offer');
-
+        RTCSessionDescription(sdpString, 'answer');
     await _peerConnection!.setRemoteDescription(description);
-
-    if (_offer) {
-      print("Remote Description has been set as ANSWER");
-      _offer = false;
-    } else {
-      print("Remote Description has been set as OFFER");
-    }
+    print("Remote Description has been set as ANSWER");
   }
 
   void _createAnswer() async {
@@ -184,17 +376,40 @@ class _MyHomePageState extends State<MyHomePage> {
     String answerSdp = json.encode(session);
 
     _publishMessage(anotherMobile, WebRTC_Method.ANSWER.index, answerSdp);
-    _peerConnection!.setLocalDescription(description);
-
     print("ANSWER message has been sent to: $anotherMobile");
+    _peerConnection!.setLocalDescription(description);
+    print("Local Description has been set for ANWSER");
   }
 
-  void _addCandidate(Map<String, dynamic> candidates) async {
-    //print('Received Candidate: $candidates');
-    dynamic candidate = RTCIceCandidate(candidates['candidate'],
-        candidates['sdpMid'], candidates['sdpMlineIndex']);
-    await _peerConnection!.addCandidate(candidate);
-    print("CANDIDATE has been added.");
+  void _requestIceCandidates() async {
+    _publishMessage(anotherMobile, WebRTC_Method.REQUEST_ICE_CANDIDATES.index,
+        "ICE Candidates");
+    print("Request to send ICE Candidates: $anotherMobile");
+  }
+
+  void _sendIceCandidates() async {
+    String candidates = _iceCandidates.join(',');
+    _publishMessage(
+        anotherMobile, WebRTC_Method.ICE_CANDIDATES.index, candidates);
+    print("Request to send ICE Candidates: $anotherMobile");
+  }
+
+  void _addCandidate(String candidates) async {
+    List<String> iceCandidates = candidates.split(',');
+    for (String candidate in iceCandidates) {
+      Map<String, dynamic> iceCandidate = json.decode(candidate);
+      dynamic rtcIcecandidate = RTCIceCandidate(iceCandidate['candidate'],
+          iceCandidate['sdpMid'], iceCandidate['sdpMlineIndex']);
+      await _peerConnection!.addCandidate(rtcIcecandidate);
+    }
+    print("ICE CANDIDATES have been added.");
+    // try {
+      
+      
+    // } catch (e) {
+    //   print("Error in addCandidate. ERROR:");
+    //   print(e.toString());
+    // }
   }
 
   void prepareMqttClient() async {
@@ -261,18 +476,21 @@ class _MyHomePageState extends State<MyHomePage> {
 
       if (receivedMessage['Type'] == WebRTC_Method.OFFER.index) {
         print("OFFER Message has been Received");
-        _offer = false;
+        //_offer = false;
         sdp = write(receivedMessage['Body'], null);
-        _setRemoteDescription(sdp);
-        //Create Anwser should be called after setting remote description
-        _createAnswer();
+        _receiveCall(sdp);
       }
       if (receivedMessage['Type'] == WebRTC_Method.ANSWER.index) {
         print("ANSWER Message has been Received");
         sdp = write(receivedMessage['Body'], null);
         _setRemoteDescription(sdp);
       }
-      if (receivedMessage['Type'] == WebRTC_Method.ICE_CANDIDATE.index) {
+      if (receivedMessage['Type'] ==
+          WebRTC_Method.REQUEST_ICE_CANDIDATES.index) {
+        print("Received ICE Candidates request.");
+        _sendIceCandidates();
+      }
+      if (receivedMessage['Type'] == WebRTC_Method.ICE_CANDIDATES.index) {
         print("CANDIDATE Message has been Received");
         _addCandidate(receivedMessage['Body']);
       }
@@ -290,7 +508,7 @@ class _MyHomePageState extends State<MyHomePage> {
     print('OnDisconnected client callback - Client disconnection');
 
     connectionState = MqttCurrentConnectionState.DISCONNECTED;
-    _connectClient();
+    prepareMqttClient();
   }
 
   /// called when mqtt server is connected
@@ -341,21 +559,55 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
       ]);
 
+  void _sendDtmf() async {
+    var dtmfSender =
+        _peerConnection?.createDtmfSender(_localStream!.getAudioTracks()[0]);
+    await dtmfSender?.insertDTMF('123#');
+  }
+
   @override
   Widget build(BuildContext context) {
+    var widgets = <Widget>[
+      Expanded(
+        child: RTCVideoView(_localRenderer, mirror: true),
+      ),
+      Expanded(
+        child: RTCVideoView(_remoteRenderer),
+      )
+    ];
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
+        actions: _inCalling
+            ? <Widget>[
+                IconButton(
+                  icon: Icon(Icons.keyboard),
+                  onPressed: _sendDtmf,
+                ),
+              ]
+            : null,
       ),
-      body: Container(
-          child: Column(
-        children: [
-          videoRenderers(),
-          offerAndAnswerButtons(),
-          //sdpCandidatesTF(),
-          //sdpCandidateButtons(),
-        ],
-      )),
+      body: OrientationBuilder(
+        builder: (context, orientation) {
+          return Center(
+            child: Container(
+              decoration: BoxDecoration(color: Colors.black54),
+              child: orientation == Orientation.portrait
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: widgets)
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: widgets),
+            ),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _inCalling ? _hangUp : _makeCall,
+        tooltip: _inCalling ? 'Hangup' : 'Call',
+        child: Icon(_inCalling ? Icons.call_end : Icons.phone),
+      ),
     );
   }
 }

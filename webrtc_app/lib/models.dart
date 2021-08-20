@@ -14,5 +14,6 @@ enum MqttSubscriptionState {
 enum WebRTC_Method {
   OFFER,
   ANSWER,
-  ICE_CANDIDATE
+  REQUEST_ICE_CANDIDATES,
+  ICE_CANDIDATES
 }
