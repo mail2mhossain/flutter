@@ -41,6 +41,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
+  final String _iceCandidateSeparator = '|';
   bool _offer = false;
   bool _inCalling = false;
   bool isIceCandidateSent = true;
@@ -53,7 +54,7 @@ class _MyHomePageState extends State<MyHomePage> {
   final _client = mqttsetup.setup("09638582706");
   final _localRenderer = RTCVideoRenderer();
   final _remoteRenderer = RTCVideoRenderer();
-  List<String> _iceCandidates = [];
+  final List<String> _iceCandidates = [];
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
   Timer? _timer;
@@ -240,13 +241,33 @@ class _MyHomePageState extends State<MyHomePage> {
           break;
       }
       print("Peer Connection has been created for ANWSER.");
-      _setRemoteDescription(sdpString);
-      _createAnswer();
+      RTCSessionDescription answerDescription =
+        await _peerConnection!.createAnswer({'offerToReceiveVideo': 1});
+
+      var session = parse(answerDescription.sdp.toString());
+      String answerSdp = json.encode(session);
+      
+      _peerConnection!.setLocalDescription(answerDescription);
+      print("Local Description has been set for ANWSER");
+
+      RTCSessionDescription remoteDescription =
+        RTCSessionDescription(sdpString, 'answer');
+      await _peerConnection!.setRemoteDescription(remoteDescription);
+      print("Remote Description has been set as ANSWER");
+
+      _publishMessage(anotherMobile, WebRTC_Method.ANSWER.index, answerSdp);
+      print("ANSWER message has been sent to: $anotherMobile");
+
+      //_setRemoteDescription(sdpString);
+      //_createAnswer();
       //_requestIceCandidates();
     } catch (e) {
       print("Failed to create Peer Connection for ANWSER. ERROR:");
       print(e.toString());
     }
+    setState(() {
+      _inCalling = false;
+    });
   }
 
   void _hangUp() async {
@@ -388,14 +409,14 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _sendIceCandidates() async {
-    String candidates = _iceCandidates.join(',');
+    String candidates = _iceCandidates.join(_iceCandidateSeparator);
     _publishMessage(
         anotherMobile, WebRTC_Method.ICE_CANDIDATES.index, candidates);
     print("Request to send ICE Candidates: $anotherMobile");
   }
 
   void _addCandidate(String candidates) async {
-    List<String> iceCandidates = candidates.split(',');
+    List<String> iceCandidates = candidates.split(_iceCandidateSeparator);
     for (String candidate in iceCandidates) {
       Map<String, dynamic> iceCandidate = json.decode(candidate);
       dynamic rtcIcecandidate = RTCIceCandidate(iceCandidate['candidate'],
@@ -403,13 +424,6 @@ class _MyHomePageState extends State<MyHomePage> {
       await _peerConnection!.addCandidate(rtcIcecandidate);
     }
     print("ICE CANDIDATES have been added.");
-    // try {
-      
-      
-    // } catch (e) {
-    //   print("Error in addCandidate. ERROR:");
-    //   print(e.toString());
-    // }
   }
 
   void prepareMqttClient() async {
