@@ -32,3 +32,10 @@ final mediaConstraints = <String, dynamic>{
       ],
       'sdpSemantics': sdpSemantics
     };
+
+    final loopbackConstraints = <String, dynamic>{
+      'mandatory': {},
+      'optional': [
+        {'DtlsSrtpKeyAgreement': false},
+      ],
+    };
