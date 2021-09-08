@@ -41,9 +41,7 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final String _iceCandidateSeparator = '|';
   bool _inCalling = false;
-  bool isIceCandidateSent = true;
   final String myMobile = "09638582706"; //"01713032885";
   final String anotherMobile = "01713032885"; //"09638582706";
   // set default sub and conn states
@@ -159,7 +157,7 @@ class _MyHomePageState extends State<MyHomePage> {
     await _createPeerConnection();
     var description = await _createOffer();
     _sendOffer(description);
-
+    _peerConnection!.onIceCandidate = _onIceCandidate;
     setState(() {
       _inCalling = true;
     });
@@ -174,7 +172,7 @@ class _MyHomePageState extends State<MyHomePage> {
     await _setRemoteDescription(sdpString);
     var sdp = await _createAnswer();
     await _sendAnswer(sdp);
-
+    _peerConnection!.onIceCandidate = _onIceCandidate;
     setState(() {
       _inCalling = false;
     });
@@ -203,15 +201,16 @@ class _MyHomePageState extends State<MyHomePage> {
           await createPeerConnection(configuration, offerSdpConstraints);
 
       _peerConnection!.onSignalingState = _onSignalingState;
-      _peerConnection!.onIceGatheringState = _onIceGatheringState;
-      _peerConnection!.onIceConnectionState = _onIceConnectionState;
       _peerConnection!.onConnectionState = _onPeerConnectionState;
-      _peerConnection!.onIceCandidate = _onIceCandidate;
+      _peerConnection!.onIceConnectionState = _onIceConnectionState;
+      _peerConnection!.onIceGatheringState = _onIceGatheringState;
+      //_peerConnection!.onIceCandidate = _onIceCandidate;
       _peerConnection!.onRenegotiationNeeded = _onRenegotiationNeeded;
 
       _localStream =
-          await navigator.mediaDevices.getUserMedia(mediaConstraints);
+          await navigator.mediaDevices.getUserMedia({'video': true, 'audio': true});
       _localRenderer.srcObject = _localStream;
+      _remoteRenderer.srcObject = await createLocalMediaStream('key');
 
       switch (sdpSemantics) {
         case 'plan-b':
